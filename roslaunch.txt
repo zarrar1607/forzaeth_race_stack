@@ -1,0 +1,12 @@
+#Base
+roslaunch stack_master base_system.launch sim:=true map_name:=test_map
+#time-trial
+roslaunch stack_master time_trials.launch racecar_version:=SIM
+#head-to-head
+roslaunch stack_master headtohead.launch racecar_version:=SIM ctrl_algo:=MAP
+#obstacle
+
+#Config
+RQT
+#Install
+sudo apt-get install ros-noetic-laser-filters
