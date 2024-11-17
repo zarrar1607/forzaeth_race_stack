@@ -115,7 +115,7 @@ while not rospy.is_shutdown():
     servo, speed = dnn_output()
 
     # Map speed from model's output range to actual speed range
-    speed = linear_map(speed, 0, 1, -0.3, 8.0)
+    speed = linear_map(speed, 0, 1, -0.1, 8.0)
 
     # Print info and write to CSV
     print(f'Servo: {servo}, Speed: {speed}')

@@ -15,6 +15,12 @@ from rospkg import RosPack
 from datetime import datetime
 import os
 
+# Import necessary libraries
+import rosbag
+from sensor_msgs.msg import LaserScan
+from ackermann_msgs.msg import AckermannDriveStamped
+import message_filters
+
 class LapAnalyser:
     def __init__(self):
 
@@ -58,6 +64,29 @@ class LapAnalyser:
         self.lap_time_acc = deque(maxlen=self.NUM_LAPS_ANALYSED)
         self.lat_err_acc = deque(maxlen=self.NUM_LAPS_ANALYSED)
         self.max_lat_err_acc = deque(maxlen=self.NUM_LAPS_ANALYSED)
+        
+        #Lap data saving
+        self.drive = '/vesc/high_level/ackermann_cmd_mux/input/nav_1'  # Topic for drive commands
+        self.lid = '/scan'  # Lidar topic (filtered)
+        self.bag = None  # ROS Bag to store collected data
+        self.bag_name = os.path.join(os.path.expanduser("~"), f'catkin_ws/src/race_stack/f110_utils/nodes/lap_analyser/src/lap_data/lap_{self.lap_count}.bag')
+                
+        self.pressed = False  # Button press flag
+        # Create subscribers for drive and lidar messages
+        self.drive_sub = message_filters.Subscriber(self.drive, AckermannDriveStamped)
+        self.lid_sub = message_filters.Subscriber(self.lid, LaserScan)# Use time synchronizer to combine messages from both topics
+        self.ts = message_filters.ApproximateTimeSynchronizer([self.drive_sub, self.lid_sub], queue_size=10, slop=0.01, allow_headerless=True)
+        self.ts.registerCallback(self.callback)# Register the callback function
+        folder_path = os.path.join(os.path.expanduser("~"), f'catkin_ws/src/race_stack/f110_utils/nodes/lap_analyser/src/lap_data/')
+        for filename in os.listdir(folder_path):
+            file_path = os.path.join(folder_path, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.remove(file_path)  # delete the file
+                elif os.path.isdir(file_path):
+                    os.rmdir(file_path)  # delete the directory if empty
+            except Exception as e:
+                print(f"Failed to delete {file_path}. Reason: {e}")
 
         self.LOC_METHOD = rospy.get_param("~loc_algo", default="slam")
 
@@ -73,7 +102,14 @@ class LapAnalyser:
         with open(self.logfile_dir, 'w') as f:
             f.write(f"Laps done on " + datetime.now().strftime('%d %b %H:%M:%S') + '\n')
 
-
+    # Callback for receiving Ackermann and Lidar messages
+    def callback(self, ack_msg, ldr_msg):
+        if self.pressed and self.bag is not None:
+            # print(f'Ackermann: {ack_msg}')
+            # print(f'Lidar: {ldr_msg}')
+            self.bag.write('Ackermann', ack_msg)  # Write Ackermann messages to bag
+            self.bag.write('Lidar', ldr_msg)  # Write Lidar messages to bag
+            
     def waypoints_cb(self, data: WpntArray):
         """
         Callback function of /global_waypoints subscriber.
@@ -103,6 +139,12 @@ class LapAnalyser:
                 self.lap_start_time = rospy.Time.now()
                 rospy.loginfo("LapAnalyser: started first lap")
                 self.lap_count = 0
+                
+                rospy.loginfo(f"self.pressed = {self.lap_count}")
+                self.bag_name = os.path.join(os.path.expanduser("~"), f'catkin_ws/src/race_stack/f110_utils/nodes/lap_analyser/src/lap_data/lap_{self.lap_count}.bag')
+                self.pressed = self.lap_count
+                self.bag = rosbag.Bag(self.bag_name, 'w')
+                
             else:
                 self.lap_count += 1
                 self.publish_lap_info()
@@ -112,6 +154,16 @@ class LapAnalyser:
                 self.max_error = abs(current_d)
                 self.accumulated_error = abs(current_d)
                 self.n_datapoints = 1
+                
+                #need to create rosbag and append data
+                rospy.loginfo(f"self.pressed = {self.lap_count}")
+                if self.pressed != self.lap_count:
+                    self.pressed = self.lap_count
+                    rospy.loginfo(f"self.pressed = {self.lap_count}")
+                    self.bag.close()  # Close the bag when recording stops
+                    self.bag_name = os.path.join(os.path.expanduser("~"), f'catkin_ws/src/race_stack/f110_utils/nodes/lap_analyser/src/lap_data/lap_{self.lap_count}.bag')
+                    self.pressed = self.lap_count
+                    self.bag = rosbag.Bag(self.bag_name, 'w')
 
                 # Compute and publish statistics. Perhaps publish to a file?
                 if self.lap_count > 0 and self.lap_count % self.NUM_LAPS_ANALYSED == 0:
@@ -208,6 +260,8 @@ class LapAnalyser:
         mark.color.b = 0.2
         mark.text = f"Lap {self.lap_count:02d} {msg.lap_time:.3f}s"
         self.lap_data_vis.publish(mark)
+        
+
 
     def publish_min_distance(self):
         self.min_car_distance_to_boundary = np.min(self.car_distance_to_boundary)

@@ -7,6 +7,6 @@ roslaunch stack_master headtohead.launch racecar_version:=SIM ctrl_algo:=MAP
 #obstacle
 
 #Config
-RQT
+rqt
 #Install
 sudo apt-get install ros-noetic-laser-filters
