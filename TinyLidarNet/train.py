@@ -49,8 +49,9 @@ model_files = [
     './Models/'+model_name+'_int8.tflite'
 ]
 dataset_path = [
-    './Dataset/out.bag', 
+    # './Dataset/out.bag', 
     './Dataset/out1.bag', 
+    './Dataset/out2.bag', 
 ]
 loss_figure_path = './Figures/loss_curve.png'
 down_sample_param = 2 # Down-sample Lidar data
