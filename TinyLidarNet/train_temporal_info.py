@@ -43,21 +43,15 @@ speed = []
 test_lidar = []
 test_servo = []
 test_speed = []
-model_name = 'TLN'
+model_name = 'TLN_temporal_info'
 model_files = [
     './Models/'+model_name+'_noquantized.tflite',
     './Models/'+model_name+'_int8.tflite'
 ]
-# dataset_path = [
-#     './Dataset/out1.bag', 
-#     './Dataset/out2.bag', 
-# ]
 dataset_path = [
+    # './Dataset/out.bag', 
     './Dataset/out1.bag', 
     './Dataset/out2.bag', 
-    './Dataset/JFR1.bag', 
-    './Dataset/JFR2.bag', 
-    './Dataset/JFRv6_1.bag', 
 ]
 loss_figure_path = './Figures/loss_curve.png'
 down_sample_param = 2 # Down-sample Lidar data

@@ -13,7 +13,7 @@ joy = '/vesc/joy'  # Topic for joystick commands
 lid = '/scan'  # Lidar topic (filtered)
 pressed = False  # Button press flag
 bag = None  # ROS Bag to store collected data
-bag_name = 'Dataset/ForzaETH2.bag' # path and name of the bag where the data needs to be stored
+bag_name = 'Dataset/JFRv6_1.bag' # path and name of the bag where the data needs to be stored
 
 # ROS initialization
 rospy.init_node('receive_position')
