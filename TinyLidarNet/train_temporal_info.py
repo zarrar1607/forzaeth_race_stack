@@ -60,6 +60,7 @@ loss_function = 'huber'
 batch_size = 64
 num_epochs = 20
 hz = 40
+temporal_length = 5
 
 # Initialize variables for min and max speed
 max_speed = 0
@@ -148,12 +149,78 @@ assert len(lidar) == len(servo) == len(speed)
 assert len(test_lidar) == len(test_servo) == len(test_speed)
 
 #======================================================
+# Adding Temporal Information
+#======================================================
+
+# Initialize new lists for processed data
+lidar_sequences = []
+servo_averages = []
+speed_averages = []
+
+# Process training data
+for i in range(len(lidar) - temporal_length + 1):
+    # Stack 5 LiDAR scans
+    sequence = np.stack(lidar[i:i + temporal_length], axis=0)  # Shape: (5, lidar_dim)
+    lidar_sequences.append(sequence)
+    
+    # Calculate average servo and speed values
+    avg_servo = np.mean(servo[i:i + temporal_length])
+    avg_speed = np.mean(speed[i:i + temporal_length])
+    servo_averages.append(avg_servo)
+    speed_averages.append(avg_speed)
+
+# Convert to numpy arrays
+lidar_sequences = np.array(lidar_sequences)  # Shape: (num_sequences, 5, lidar_dim)
+servo_averages = np.array(servo_averages)    # Shape: (num_sequences,)
+speed_averages = np.array(speed_averages)    # Shape: (num_sequences,)
+
+# Print updated shapes
+print(f'Processed Training Samples: {lidar_sequences.shape[0]} sequences')
+print(f'Lidar Sequence Shape: {lidar_sequences.shape}')
+print(f'Servo Shape: {servo_averages.shape}')
+print(f'Speed Shape: {speed_averages.shape}')
+
+# Initialize new test_lists for processed data
+test_lidar_sequences = []
+test_servo_averages = []
+test_speed_averages = []
+
+# Process training data
+for i in range(len(test_lidar) - temporal_length + 1):
+    # Stack 5 LiDAR scans
+    sequence = np.stack(lidar[i:i + temporal_length], axis=0)  # Shape: (5, lidar_dim)
+    test_lidar_sequences.append(sequence)
+    
+    # Calculate average servo and speed values
+    avg_servo = np.mean(servo[i:i + temporal_length])
+    avg_speed = np.mean(speed[i:i + temporal_length])
+    test_servo_averages.append(avg_servo)
+    test_speed_averages.append(avg_speed)
+
+# Convert to numpy arrays
+test_lidar_sequences = np.array(test_lidar_sequences)  # Shape: (num_sequences, 5, lidar_dim)
+test_servo_averages = np.array(test_servo_averages)    # Shape: (num_sequences,)
+test_speed_averages = np.array(test_speed_averages)    # Shape: (num_sequences,)
+
+# Print updated shapes
+print(f'Processed Training Samples: {test_lidar_sequences.shape[0]} sequences')
+print(f'Lidar Sequence Shape: {test_lidar_sequences.shape}')
+print(f'Servo Shape: {test_servo_averages.shape}')
+print(f'Speed Shape: {test_speed_averages.shape}')
+
+# Check array shapes after processing
+assert len(lidar_sequences) == len(servo_averages) == len(speed_averages)
+assert len(test_lidar_sequences) == len(test_servo_averages) == len(test_speed_averages)
+#======================================================
 # Split Dataset
 #======================================================
 
 print('Splitting Data into Train/Test')
 train_data = np.concatenate((servo[:, np.newaxis], speed[:, np.newaxis]), axis=1)
 test_data =  np.concatenate((test_servo[:, np.newaxis], test_speed[:, np.newaxis]), axis=1)
+train_sequences_data = np.concatenate((servo_averages[:, np.newaxis], speed_averages[:, np.newaxis]), axis=1)
+test_sequences_data =  np.concatenate((test_servo_averages[:, np.newaxis], test_speed_averages[:, np.newaxis]), axis=1)
+
 # Check array shapes
 print(f'Train Data(lidar): {lidar.shape}')
 print(f'Train Data(servo, speed): {servo.shape}, {speed.shape}')
@@ -168,18 +235,18 @@ num_lidar_range_values = len(lidar[0])
 print(f'num_lidar_range_values: {num_lidar_range_values}')
 
 model = tf.keras.Sequential([
-    tf.keras.layers.Conv1D(filters=24, kernel_size=10, strides=4, activation='relu', input_shape=(num_lidar_range_values, 1)),
-    tf.keras.layers.Conv1D(filters=36, kernel_size=8, strides=4, activation='relu'),
-    tf.keras.layers.Conv1D(filters=48, kernel_size=4, strides=2, activation='relu'),
-    tf.keras.layers.Conv1D(filters=64, kernel_size=3, activation='relu'),
-    tf.keras.layers.Conv1D(filters=64, kernel_size=3, activation='relu'),
+    tf.keras.layers.Conv2D(filters=24, kernel_size=(temporal_length, 10), strides=(temporal_length, 4), activation='relu', 
+                           input_shape=(temporal_length, num_lidar_range_values, 1)),  # Adding a 4th dimension for channels
+    tf.keras.layers.Conv2D(filters=36, kernel_size=(temporal_length, 8), strides=(temporal_length, 4), activation='relu'),
+    tf.keras.layers.Conv2D(filters=48, kernel_size=(temporal_length, 4), strides=(temporal_length, 2), activation='relu'),
+    tf.keras.layers.Conv2D(filters=64, kernel_size=(temporal_length, 3), activation='relu'),
+    tf.keras.layers.Conv2D(filters=64, kernel_size=(temporal_length, 3), activation='relu'),
     tf.keras.layers.Flatten(),
     tf.keras.layers.Dense(100, activation='relu'),
     tf.keras.layers.Dense(50, activation='relu'),
     tf.keras.layers.Dense(10, activation='relu'),
-    tf.keras.layers.Dense(2, activation='tanh')
+    tf.keras.layers.Dense(2, activation='tanh')  # Predicts normalized steering and speed
 ])
-
 #======================================================
 # Model Compilation
 #======================================================
@@ -192,8 +259,8 @@ print(model.summary())
 # Model Fit
 #======================================================
 start_time = time.time()
-history = model.fit(lidar, np.concatenate((servo[:, np.newaxis], speed[:, np.newaxis]), axis=1),
-                    epochs=num_epochs, batch_size=batch_size, validation_data=(test_lidar, test_data))
+history = model.fit(lidar_sequences, np.concatenate((servo_averages[:, np.newaxis], speed_averages[:, np.newaxis]), axis=1),
+                    epochs=num_epochs, batch_size=batch_size, validation_data=(test_lidar_sequences, test_sequences_data))
 
 print(f'=============>{int(time.time() - start_time)} seconds<=============')
 
@@ -216,24 +283,24 @@ print("Model Evaluation")
 print("==========================================")
 
 # Evaluate test loss
-test_loss = model.evaluate(test_lidar, test_data)
+test_loss = model.evaluate(test_lidar_sequences, test_sequences_data)
 print(f'Overall Test Loss = {test_loss}')
 
 # Calculate and print overall evaluation
-y_pred = model.predict(test_lidar)
-hl = huber_loss(test_data, y_pred)
+y_pred = model.predict(test_lidar_sequences)
+hl = huber_loss(test_sequences_data, y_pred)
 print('\nOverall Evaluation:')
 print(f'Overall Huber Loss: {hl:.3f}')
 
 # Calculate and print speed evaluation
-speed_y_pred = model.predict(test_lidar)[:, 1]
-speed_test_loss = huber_loss(test_data[:, 1], speed_y_pred)
+speed_y_pred = model.predict(v)[:, 1]
+speed_test_loss = huber_loss(test_sequences_data[:, 1], speed_y_pred)
 print("\nSpeed Evaluation:")
 print(f"Speed Test Loss: {speed_test_loss}")
 
 # Calculate and print servo evaluation
-servo_y_pred = model.predict(test_lidar)[:, 0]
-servo_test_loss = huber_loss(test_data[:, 0], servo_y_pred)
+servo_y_pred = model.predict(test_lidar_sequences)[:, 0]
+servo_test_loss = huber_loss(test_sequences_data[:, 0], servo_y_pred)
 print("\nServo Evaluation:")
 print(f"Servo Test Loss: {servo_test_loss}")
 
