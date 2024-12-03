@@ -60,7 +60,7 @@ loss_function = 'huber'
 batch_size = 64
 num_epochs = 20
 hz = 40
-temporal_length = 5
+temporal_length = 1
 
 # Initialize variables for min and max speed
 max_speed = 0
@@ -164,8 +164,14 @@ for i in range(len(lidar) - temporal_length + 1):
     lidar_sequences.append(sequence)
     
     # Calculate average servo and speed values
-    avg_servo = np.mean(servo[i:i + temporal_length])
-    avg_speed = np.mean(speed[i:i + temporal_length])
+    # Determine avg_servo based on the majority sign of servo values
+    buffer_servo = servo[i:i + temporal_length]
+    if np.sum(buffer_servo > 0) > np.sum(buffer_servo < 0):
+        avg_servo = np.max(buffer_servo)  # Majority positive, take max
+    else:
+        avg_servo = np.min(buffer_servo)  # Majority negative, take min
+    
+    avg_speed = np.max(speed[i:i + temporal_length])
     servo_averages.append(avg_servo)
     speed_averages.append(avg_speed)
 
@@ -191,9 +197,13 @@ for i in range(len(test_lidar) - temporal_length + 1):
     sequence = np.stack(lidar[i:i + temporal_length], axis=0)  # Shape: (5, lidar_dim)
     test_lidar_sequences.append(sequence)
     
-    # Calculate average servo and speed values
-    avg_servo = np.mean(servo[i:i + temporal_length])
-    avg_speed = np.mean(speed[i:i + temporal_length])
+    # Determine avg_servo based on the majority sign of servo values
+    buffer_servo = servo[i:i + temporal_length]
+    if np.sum(buffer_servo > 0) > np.sum(buffer_servo < 0):
+        avg_servo = np.max(buffer_servo)  # Majority positive, take max
+    else:
+        avg_servo = np.min(buffer_servo)  # Majority negative, take min
+    avg_speed = np.max(speed[i:i + temporal_length])
     test_servo_averages.append(avg_servo)
     test_speed_averages.append(avg_speed)
 
@@ -235,21 +245,22 @@ num_lidar_range_values = len(lidar[0])
 print(f'num_lidar_range_values: {num_lidar_range_values}')
 
 model = tf.keras.Sequential([
-    tf.keras.layers.Conv2D(filters=24, kernel_size=(temporal_length, 10), strides=(temporal_length, 4), activation='relu', 
-                           input_shape=(temporal_length, num_lidar_range_values, 1)),  # Adding a 4th dimension for channels
-    tf.keras.layers.Conv2D(filters=36, kernel_size=(temporal_length, 8), strides=(temporal_length, 4), activation='relu'),
-    tf.keras.layers.Conv2D(filters=48, kernel_size=(temporal_length, 4), strides=(temporal_length, 2), activation='relu'),
-    tf.keras.layers.Conv2D(filters=64, kernel_size=(temporal_length, 3), activation='relu'),
-    tf.keras.layers.Conv2D(filters=64, kernel_size=(temporal_length, 3), activation='relu'),
+    tf.keras.layers.Conv2D(filters=24, kernel_size=(temporal_length, 10), strides=(1, 4), activation='relu', 
+                           input_shape=(temporal_length, num_lidar_range_values, 1)),  # (5, 540, 1)
+    tf.keras.layers.Conv2D(filters=36, kernel_size=(1, 8), strides=(1, 4), activation='relu'),
+    tf.keras.layers.Conv2D(filters=48, kernel_size=(1, 4), strides=(1, 2), activation='relu'),
+    tf.keras.layers.Conv2D(filters=64, kernel_size=(1, 3), activation='relu'),
+    tf.keras.layers.Conv2D(filters=64, kernel_size=(1, 3), activation='relu'),
     tf.keras.layers.Flatten(),
     tf.keras.layers.Dense(100, activation='relu'),
     tf.keras.layers.Dense(50, activation='relu'),
     tf.keras.layers.Dense(10, activation='relu'),
-    tf.keras.layers.Dense(2, activation='tanh')  # Predicts normalized steering and speed
+    tf.keras.layers.Dense(2, activation='tanh')  # Predict normalized steering and speed
 ])
 #======================================================
 # Model Compilation
 #======================================================
+
 
 optimizer = Adam(lr)
 model.compile(optimizer=optimizer, loss=loss_function)
@@ -293,16 +304,16 @@ print('\nOverall Evaluation:')
 print(f'Overall Huber Loss: {hl:.3f}')
 
 # Calculate and print speed evaluation
-speed_y_pred = model.predict(v)[:, 1]
-speed_test_loss = huber_loss(test_sequences_data[:, 1], speed_y_pred)
-print("\nSpeed Evaluation:")
-print(f"Speed Test Loss: {speed_test_loss}")
+# speed_y_pred = model.predict(test_sequences_data)[:, 1]
+# speed_test_loss = huber_loss(test_sequences_data[:, 1], speed_y_pred)
+# print("\nSpeed Evaluation:")
+# print(f"Speed Test Loss: {speed_test_loss}")
 
-# Calculate and print servo evaluation
-servo_y_pred = model.predict(test_lidar_sequences)[:, 0]
-servo_test_loss = huber_loss(test_sequences_data[:, 0], servo_y_pred)
-print("\nServo Evaluation:")
-print(f"Servo Test Loss: {servo_test_loss}")
+# # Calculate and print servo evaluation
+# servo_y_pred = model.predict(test_lidar_sequences)[:, 0]
+# servo_test_loss = huber_loss(test_sequences_data[:, 0], servo_y_pred)
+# print("\nServo Evaluation:")
+# print(f"Servo Test Loss: {servo_test_loss}")
 
 #======================================================
 # Save Model
@@ -315,120 +326,28 @@ with open(tflite_model_path, 'wb') as f:
     f.write(tflite_model)
     print(f"{model_name}_noquantized.tflite is saved.")
 
-# Save int8 quantized model
-rep_32 = lidar.astype(np.float32)
-rep_32 = np.expand_dims(rep_32, -1)
-dataset = tf.data.Dataset.from_tensor_slices(rep_32)
+# # Save int8 quantized model
+# rep_32 = lidar.astype(np.float32)
+# rep_32 = np.expand_dims(rep_32, -1)
+# dataset = tf.data.Dataset.from_tensor_slices(rep_32)
 
-def representative_data_gen():
-    for input_value in dataset.batch(len(lidar)).take(rep_32.shape[0]):
-        yield [input_value]
+# def representative_data_gen():
+#     for input_value in dataset.batch(len(lidar)).take(rep_32.shape[0]):
+#         yield [input_value]
 
-converter.optimizations = [tf.lite.Optimize.DEFAULT]
-converter.representative_dataset = representative_data_gen
-converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-quantized_tflite_model = converter.convert()
+# converter.optimizations = [tf.lite.Optimize.DEFAULT]
+# converter.representative_dataset = representative_data_gen
+# converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+# quantized_tflite_model = converter.convert()
 
-tflite_model_path = './Models/' + model_name + "_int8.tflite"
-with open(tflite_model_path, 'wb') as f:
-    f.write(quantized_tflite_model)
-    print(f"{model_name}_int8.tflite is saved.")
+# tflite_model_path = './Models/' + model_name + "_int8.tflite"
+# with open(tflite_model_path, 'wb') as f:
+#     f.write(quantized_tflite_model)
+#     print(f"{model_name}_int8.tflite is saved.")
 
-print('Tf_lite Models also saved')
+# print('Tf_lite Models also saved')
 
 #======================================================
 # Evaluated TfLite Model
 #======================================================
 
-def evaluate_model(model_path, test_lidar, test_data):
-    """Evaluate TfLite model."""
-    # Load the TFLite model
-    interpreter = tf.lite.Interpreter(model_path=model_path)
-    interpreter.allocate_tensors()
-    input_index = interpreter.get_input_details()[0]["index"]
-    output_details = interpreter.get_output_details()
-
-    output_lidar = test_lidar
-    output_servo = []
-    output_speed = []
-
-    period = 1.0 / hz
-
-    # Initialize a list to store inference times in microseconds
-    inference_times_micros = []
-
-    # Iterate through the lidar data
-    for lidar_data in output_lidar:
-        # Preprocess lidar data for inference
-        lidar_data = np.expand_dims(lidar_data, axis=-1).astype(np.float32)
-        lidar_data = np.expand_dims(lidar_data, axis=0)
-
-        # Check for empty lidar data
-        if lidar_data is None:
-            continue
-
-        # Measure inference time
-        ts = time.time()
-        interpreter.set_tensor(input_index, lidar_data)
-        interpreter.invoke()
-        output = interpreter.get_tensor(output_details[0]['index'])
-        dur = time.time() - ts
-
-        # Convert inference time to microseconds
-        inference_time_micros = dur * 1e6
-        inference_times_micros.append(inference_time_micros)
-
-        # Print inference time information
-        if dur > period:
-            print("%.3f: took %.2f microseconds - deadline miss." % (dur, int(dur * 1000000)))
-
-        # Extract servo and speed output from the model
-        servo = output[0, 0]
-        speed = output[0, 1]
-
-        # Append output servo and speed
-        output_servo.append(servo)
-        output_speed.append(speed)
-
-    output_lidar = np.asarray(output_lidar)
-    output_servo = np.asarray(output_servo)
-    output_speed = np.asarray(output_speed)
-    assert len(output_lidar) == len(output_servo) == len(output_speed)
-    output = np.concatenate((output_servo[:, np.newaxis], output_speed[:, np.newaxis]), axis=1)
-    y_pred = output
-
-    # Calculate average and maximum inference times in microseconds
-    arr = np.array(inference_times_micros)
-    perc99 = np.percentile(arr, 99)
-    arr = arr[arr < perc99]
-    average_inference_time_micros = np.mean(arr)
-    max_inference_time_micros = np.max(arr)
-
-    # Print inference time statistics
-    print("Model: ", model_path)
-    print("Average Inference Time: %.2f microseconds" % average_inference_time_micros)
-    print("Maximum Inference Time: %.2f microseconds" % max_inference_time_micros)
-
-    return y_pred, inference_times_micros
-
-# Initialize empty lists to store results for each model
-all_inference_times_micros = []
-for model_name in model_files:
-    y_pred, inference_times_micros = evaluate_model(model_name, test_lidar, test_data)
-    all_inference_times_micros.append(inference_times_micros)
-    
-    print(f'Huber Loss for {model_name}: {huber_loss(test_data, y_pred)}\n')
-
-# Plot inference times
-plt.figure()
-for inference_times_micros in all_inference_times_micros:
-    arr = np.array(inference_times_micros)
-    perc99 = np.percentile(arr, 99)
-    arr = arr[arr < perc99]
-    plt.plot(arr)
-plt.xlabel('Inference Iteration')
-plt.ylabel('Inference Time (microseconds)')
-plt.title('Inference Time per Iteration')
-plt.legend(model_files)
-
-print('End')

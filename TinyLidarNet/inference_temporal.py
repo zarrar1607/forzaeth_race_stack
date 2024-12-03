@@ -25,7 +25,7 @@ rospy.init_node('Autonomous')  # ROS initialization
 hz = 40  # Frequency (Hz)\
 rate = rospy.Rate(hz)  # Rate controller
 period = 1.0 / hz  # Time period
-temporal_length = 5
+temporal_length = 1
 lidar_queue = deque(maxlen=temporal_length)  # Queue for maintaining the last 5 scans
 
 # Callback to receive Lidar data
@@ -69,7 +69,7 @@ def load_model():
 
 def dnn_output():
     global lidar_queue, inf_time
-    if len(lidar_queue) < 5:  # Ensure we have 5 scans
+    if len(lidar_queue) < temporal_length:  # Ensure we have 5 scans
         return 0., 0.
     # Stack the scans along the temporal axis
     # Ensure each scan has 540 points
