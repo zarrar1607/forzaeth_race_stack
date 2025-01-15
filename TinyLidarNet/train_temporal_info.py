@@ -165,13 +165,8 @@ for i in range(len(lidar) - temporal_length + 1):
     
     # Calculate average servo and speed values
     # Determine avg_servo based on the majority sign of servo values
-    buffer_servo = servo[i:i + temporal_length]
-    if np.sum(buffer_servo > 0) > np.sum(buffer_servo < 0):
-        avg_servo = np.max(buffer_servo)  # Majority positive, take max
-    else:
-        avg_servo = np.min(buffer_servo)  # Majority negative, take min
-    
-    avg_speed = np.max(speed[i:i + temporal_length])
+    avg_servo = servo[i + temporal_length - 1]
+    avg_speed = speed[i + temporal_length - 1]
     servo_averages.append(avg_servo)
     speed_averages.append(avg_speed)
 
@@ -198,12 +193,8 @@ for i in range(len(test_lidar) - temporal_length + 1):
     test_lidar_sequences.append(sequence)
     
     # Determine avg_servo based on the majority sign of servo values
-    buffer_servo = servo[i:i + temporal_length]
-    if np.sum(buffer_servo > 0) > np.sum(buffer_servo < 0):
-        avg_servo = np.max(buffer_servo)  # Majority positive, take max
-    else:
-        avg_servo = np.min(buffer_servo)  # Majority negative, take min
-    avg_speed = np.max(speed[i:i + temporal_length])
+    avg_servo = servo[i + temporal_length-1]
+    avg_speed = speed[i + temporal_length-1]
     test_servo_averages.append(avg_servo)
     test_speed_averages.append(avg_speed)
 
@@ -245,7 +236,8 @@ num_lidar_range_values = len(lidar[0])
 print(f'num_lidar_range_values: {num_lidar_range_values}')
 
 model = tf.keras.Sequential([
-    tf.keras.layers.Conv2D(filters=24, kernel_size=(temporal_length, 10), strides=(1, 4), activation='relu', 
+    tf.keras.layers.Conv2D(filters=24, kernel_size=
+                           (1, 10), strides=(1, 4), activation='relu', 
                            input_shape=(temporal_length, num_lidar_range_values, 1)),  # (5, 540, 1)
     tf.keras.layers.Conv2D(filters=36, kernel_size=(1, 8), strides=(1, 4), activation='relu'),
     tf.keras.layers.Conv2D(filters=48, kernel_size=(1, 4), strides=(1, 2), activation='relu'),
@@ -263,6 +255,7 @@ model = tf.keras.Sequential([
 
 
 optimizer = Adam(lr)
+
 model.compile(optimizer=optimizer, loss=loss_function)
 print(model.summary())
 
